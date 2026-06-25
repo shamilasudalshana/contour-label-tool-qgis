@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# QGIS project files (usually project-specific, not shared)
+*.qgz
+*.qgs
+*.qgs~
+
+# Shapefile components (data not included in repo)
+*.shp
+*.dbf
+*.shx
+*.prj
+*.cpg
+*.qpj
+
+# GeoPackage
+*.gpkg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Test files 
+Tests/
+Initial_script_test_2.py
+Initial_script_test.py
