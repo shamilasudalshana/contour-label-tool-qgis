@@ -71,16 +71,19 @@ This version integrates into QGIS under **Processing Toolbox → HG Nord tools**
 
 ---
 
-### Step 1 — Draw a reference line
+### Step 1 — Draw reference lines
 
 1. Go to **Layer → Create Layer → New Temporary Scratch Layer**
 2. Set geometry type to **Line** and click OK
 3. Toggle editing on the scratch layer, then press **L** (Add Line Feature)
 4. Click your **first point at the foot of the slope** (downhill end)
 5. Click one or more points moving uphill, then **right-click to finish**
-6. Save the scratch layer edits
+6. Repeat to add more lines for other parts of the map
+7. Save the scratch layer edits
 
 > **Tip:** With "Low → High" or "High → Low" direction modes the draw direction does not matter — the tool detects slope automatically from the elevation field.
+
+> **Complex maps:** You can draw all your reference lines in one scratch layer and label different areas in separate runs. Select a subset of lines in the map canvas, tick **Use selected lines only** in the tool, and run. Repeat for the next group.
 
 ---
 
@@ -94,7 +97,8 @@ This version integrates into QGIS under **Processing Toolbox → HG Nord tools**
 | Parameter | What to choose |
 |---|---|
 | **Contour layer** | Your isoline/contour polyline layer |
-| **Reference line** | The scratch layer you drew in Step 1 |
+| **Reference line layer** | The scratch layer containing your reference lines |
+| **Use selected lines only** | Tick this to process only the lines currently selected in the map canvas. Leave unticked to use all lines in the layer. |
 | **Elevation field** | Numeric attribute holding elevation values (e.g. `ELEV`) |
 | **Rotation mode** | See options below |
 | **Label direction** | See options below |
@@ -212,9 +216,11 @@ For each contour feature:
 
 ## Tips
 
-- **Multiple transects**: add more lines to your scratch layer before running. All crossings are processed in one go.
+- **Area-by-area workflow**: draw all your reference lines at once in one scratch layer. Then select a subset in the map canvas, tick **Use selected lines only**, and run. Repeat for the next area. Full control, no redrawing.
+- **All lines at once**: leave **Use selected lines only** unticked and every line in the layer is processed in one run — each with its own elevation detection and uphill orientation.
+- **Overlapping lines**: if two reference lines cross the same contour, the second line's result overwrites the first. Design your lines to cover different parts of the map without overlap.
 - **Fine-tuning**: after the tool runs you can still adjust individual labels manually with the QGIS Label Toolbar. The computed values are the starting point, not a lock.
-- **Re-running**: running the tool again overwrites `lbl_x`, `lbl_y`, `lbl_rot` only for features that intersect the current reference line.
+- **Re-running**: running the tool again overwrites `lbl_x`, `lbl_y`, `lbl_rot` only for features that intersect the active reference lines.
 
 ---
 
