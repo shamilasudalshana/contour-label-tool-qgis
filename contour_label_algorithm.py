@@ -289,17 +289,36 @@ class ContourLabelAlgorithm(QgsProcessingAlgorithm):
         idx_rot  = fields.indexOf(FIELD_ROT)
         idx_elev = fields.indexOf(elevation_field) if elevation_field else None
 
-        total_features    = contour_layer.featureCount()
-        total_ref         = len(ref_features)
-        grand_placed      = 0
-        grand_skipped     = 0
+        # ── Read ALL contour features into memory BEFORE editing ──────
+        # Critical fix: calling getFeatures() on a layer that is open for
+        # editing causes a Windows access violation (fatal crash) with
+        # Shapefiles and some other formats because the GDAL driver locks
+        # the file. Loading everything into plain Python lists first means
+        # no file access at all happens during the edit session.
+        feedback.pushInfo("Reading contour features into memory…")
+        contour_cache = []   # list of (fid, QgsGeometry, elev_value_or_None)
+        for feat in contour_layer.getFeatures():
+            if feedback.isCanceled():
+                return {}
+            elev = feat.attribute(elevation_field) if elevation_field else None
+            # Clone the geometry so it is fully owned by Python,
+            # not a reference into the layer's internal buffer
+            contour_cache.append((feat.id(), QgsGeometry(feat.geometry()), elev))
+
+        feedback.pushInfo(f"✓ {len(contour_cache)} contour features loaded.")
+
+        total_features = len(contour_cache)
+        total_ref      = len(ref_features)
+        grand_placed   = 0
+        grand_skipped  = 0
+
+        # Accumulate all edits as (fid, x, y, rot) then write in one
+        # edit session at the end — zero getFeatures() calls while editing.
+        all_edits = []   # list of (fid, x, y, rot)
 
         # ── Process each reference line independently ─────────────────
-        contour_layer.startEditing()
-
         for ref_idx, ref_feat in enumerate(ref_features):
             if feedback.isCanceled():
-                contour_layer.rollBack()
                 return {}
 
             ref_geom = ref_feat.geometry()
@@ -322,11 +341,12 @@ class ContourLabelAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo("")
             feedback.pushInfo(f"── Reference {ref_label} ──────────────────")
 
-            # Elevation-based direction detection for this line
-            elev_at_start    = None
-            elev_at_end      = None
-            elev_flip        = False
-            this_direction   = uphill_direction   # may be overridden per-line
+            # Elevation-based direction detection — uses the cached list,
+            # no file access needed
+            elev_at_start  = None
+            elev_at_end    = None
+            elev_flip      = False
+            this_direction = uphill_direction
 
             if this_direction in ("low_to_high", "high_to_low") and idx_elev is not None:
                 start_geom     = QgsGeometry.fromPointXY(slope_start)
@@ -334,12 +354,9 @@ class ContourLabelAlgorithm(QgsProcessingAlgorithm):
                 min_dist_start = float('inf')
                 min_dist_end   = float('inf')
 
-                for feat in contour_layer.getFeatures():
+                for _fid, geom, elev in contour_cache:
                     if feedback.isCanceled():
-                        contour_layer.rollBack()
                         return {}
-                    geom = feat.geometry()
-                    elev = feat.attribute(elevation_field)
                     if elev is None:
                         continue
                     d_s = geom.distance(start_geom)
@@ -371,18 +388,15 @@ class ContourLabelAlgorithm(QgsProcessingAlgorithm):
             placed_this  = 0
             skipped_this = 0
 
-            for i, contour_feat in enumerate(contour_layer.getFeatures()):
+            for i, (fid, contour_geom, _elev) in enumerate(contour_cache):
                 if feedback.isCanceled():
-                    contour_layer.rollBack()
                     return {}
 
-                # Overall progress across all reference lines
                 overall = int(
                     ((ref_idx + i / max(total_features, 1)) / total_ref) * 100
                 )
                 feedback.setProgress(overall)
 
-                contour_geom = contour_feat.geometry()
                 intersection = contour_geom.intersection(ref_geom)
 
                 if intersection.isEmpty():
@@ -400,7 +414,7 @@ class ContourLabelAlgorithm(QgsProcessingAlgorithm):
 
                 label_pos = QgsPointXY(pt)
 
-                # Uphill vector for this line
+                # Uphill vector
                 if this_direction == "reference" or not elev_flip:
                     to_uphill_x = slope_end.x() - label_pos.x()
                     to_uphill_y = slope_end.y() - label_pos.y()
@@ -435,15 +449,7 @@ class ContourLabelAlgorithm(QgsProcessingAlgorithm):
                     if ref_dx * to_uphill_x + ref_dy * to_uphill_y < 0:
                         label_rotation = (label_rotation + 180) % 360
 
-                contour_layer.changeAttributeValue(
-                    contour_feat.id(), idx_x, label_pos.x()
-                )
-                contour_layer.changeAttributeValue(
-                    contour_feat.id(), idx_y, label_pos.y()
-                )
-                contour_layer.changeAttributeValue(
-                    contour_feat.id(), idx_rot, label_rotation
-                )
+                all_edits.append((fid, label_pos.x(), label_pos.y(), label_rotation))
                 placed_this += 1
 
             feedback.pushInfo(
@@ -453,6 +459,17 @@ class ContourLabelAlgorithm(QgsProcessingAlgorithm):
             grand_placed  += placed_this
             grand_skipped += skipped_this
 
+        # ── Write all results in a single edit session ────────────────
+        # The layer file is only opened for writing here — no reads
+        # happen at the same time, so no access violation is possible.
+        feedback.pushInfo("")
+        feedback.pushInfo(f"Writing {grand_placed} label position(s) to layer…")
+
+        contour_layer.startEditing()
+        for fid, x, y, rot in all_edits:
+            contour_layer.changeAttributeValue(fid, idx_x,   x)
+            contour_layer.changeAttributeValue(fid, idx_y,   y)
+            contour_layer.changeAttributeValue(fid, idx_rot, rot)
         contour_layer.commitChanges()
         contour_layer.triggerRepaint()
         feedback.setProgress(100)

@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.1] – 2025-06-29
+
+### Fixed
+- **Windows fatal crash** (access violation) when running the tool on Shapefile
+  layers. Root cause: `getFeatures()` was being called on the contour layer
+  while it was already open for editing (`startEditing()`). On Windows, the
+  GDAL Shapefile driver locks the `.dbf` file for writing and refuses a
+  simultaneous read, causing a fatal access violation. Fix: all contour
+  features (geometry + elevation attribute) are now read into a plain Python
+  list **before** the edit session opens. The edit session then performs only
+  writes, with zero file reads, eliminating the conflict entirely.
+
 ## [1.3.0] – 2025-06-25
 
 ### Added
